@@ -8,17 +8,22 @@ Four fixes bundled here, each targeting a specific MemoryError:
    reindex-matmul (`el @ idxmtx`) per object, which can blow up to hundreds of
    millions of nonzeros on real gene-symbol mismatches.
 2. Stratified subsampling per batch (e.g. patient x cohort) BEFORE any heavy step,
-   capped at MAX_CELLS_PER_BATCH. This is a standard trade-off for constrained
-   hardware -- raise or drop it entirely on a bigger machine.
-3. PCA on the HVG subset with `zero_center=False`, which keeps the matrix sparse
-   throughout. Centering densifies a (cells x HVG) matrix to a dense float array --
-   for a few hundred thousand cells x ~2000 genes that alone can exceed 16GB.
+   capped at MAX_CELLS_PER_BATCH. This is a trade-off for constrained hardware:
+   rare cell populations lose cells first, so check their counts after subsampling,
+   and raise the cap or drop the step on a bigger machine.
+3. PCA on the HVG subset, kept sparse. With a sparse matrix and svd_solver="arpack",
+   Scanpy centres implicitly and never builds the dense (cells x HVG) array, so the
+   centred PCA costs no extra memory. Do not switch to zero_center=False to save RAM:
+   on 200,000 cells x 2,000 genes it saved nothing and changed the components
+   (benchmarks/pca_centering.py, results in benchmarks/results/). Densifying the
+   matrix first is what costs memory (+2 GB at that size).
 4. `sc.tl.leiden(..., flavor="igraph")` instead of the `leidenalg` default. The
    leidenalg wrapper builds its own C-level graph representation, which runs out
    of memory on graphs with several hundred thousand nodes well before igraph does.
 
-Usage: adapt `load_cohort_a/b` to your own inputs; everything after `# --- pipeline
-starts here ---` is the reusable part.
+Usage: load your two cohorts as raw-count AnnData objects and call
+`integrate(a1, a2, batch_key=...)`, where batch_key is an obs column present in both
+(for example patient or sample). Each step is also usable on its own.
 """
 from __future__ import annotations
 
@@ -65,10 +70,11 @@ def stratified_subsample(adata: ad.AnnData, batch_key: str, max_per_batch: int =
 
 def sparse_pca_harmony(adata: ad.AnnData, batch_key: str, n_hvg: int = N_HVG, n_pcs: int = N_PCS) -> None:
     """Adds `X_pca` and `X_pca_harmony` to adata.obsm in place, keeping the HVG
-    matrix sparse throughout (no dense scaling/centering step)."""
+    matrix sparse throughout (no dense scaling step). Requires harmonypy."""
     sc.pp.highly_variable_genes(adata, n_top_genes=n_hvg, batch_key=batch_key, flavor="seurat")
     hvg = adata[:, adata.var["highly_variable"]].copy()
-    sc.tl.pca(hvg, n_comps=n_pcs, svd_solver="arpack", zero_center=False)
+    # sparse input + arpack: Scanpy centres implicitly, no dense copy is made
+    sc.tl.pca(hvg, n_comps=n_pcs, svd_solver="arpack", random_state=RNG_SEED)
     adata.obsm["X_pca"] = hvg.obsm["X_pca"]
     del hvg
     gc.collect()
@@ -78,8 +84,9 @@ def sparse_pca_harmony(adata: ad.AnnData, batch_key: str, n_hvg: int = N_HVG, n_
 def cluster_lowmem(adata: ad.AnnData, use_rep: str = "X_pca_harmony", n_pcs: int = N_PCS,
                     resolution: float = 1.0) -> None:
     sc.pp.neighbors(adata, use_rep=use_rep, n_pcs=n_pcs)
-    sc.tl.umap(adata)
-    sc.tl.leiden(adata, resolution=resolution, flavor="igraph", n_iterations=2, directed=False)
+    sc.tl.umap(adata, random_state=RNG_SEED)
+    sc.tl.leiden(adata, resolution=resolution, flavor="igraph", n_iterations=2, directed=False,
+                 random_state=RNG_SEED)
 
 
 # --- pipeline starts here ---

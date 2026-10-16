@@ -1,0 +1,4 @@
+variant,cells,genes,density,peak_mb,peak_before_pca_mb,pca_added_mb,seconds,agreement_with_dense_pca,python,scanpy,anndata,numpy,scipy,machine
+centred_sparse_arpack,200000,2000,0.08,3665.8,3665.8,0.0,41.5,1.0,3.13.2,1.12.4,0.13.4,2.5.4,1.18.1,Windows-11-10.0.26200-SP0
+uncentred_truncated_svd,200000,2000,0.08,3665.9,3665.9,0.0,15.4,0.899,3.13.2,1.12.4,0.13.4,2.5.4,1.18.1,Windows-11-10.0.26200-SP0
+centred_dense,200000,2000,0.08,5648.0,3666.7,1981.3,16.8,1.0,3.13.2,1.12.4,0.13.4,2.5.4,1.18.1,Windows-11-10.0.26200-SP0
