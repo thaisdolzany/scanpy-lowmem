@@ -13,10 +13,10 @@ Four fixes bundled here, each targeting a specific MemoryError:
    and raise the cap or drop the step on a bigger machine.
 3. PCA on the HVG subset, kept sparse. With a sparse matrix and svd_solver="arpack",
    Scanpy centres implicitly and never builds the dense (cells x HVG) array, so the
-   centred PCA costs no extra memory. Do not switch to zero_center=False to save RAM:
-   on 200,000 cells x 2,000 genes it saved nothing and changed the components
-   (benchmarks/pca_centering.py, results in benchmarks/results/). Densifying the
-   matrix first is what costs memory (+2 GB at that size).
+   centred PCA adds little memory (+187 MB on 200,000 cells x 2,000 genes). Do not
+   switch to zero_center=False to save RAM: at that size it used more (+443 MB) and
+   changed the components (benchmarks/pca_centering.py, results in
+   benchmarks/results/). Densifying the matrix first is what costs memory (+5 GB).
 4. `sc.tl.leiden(..., flavor="igraph")` instead of the `leidenalg` default. The
    leidenalg wrapper builds its own C-level graph representation, which runs out
    of memory on graphs with several hundred thousand nodes well before igraph does.

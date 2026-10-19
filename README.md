@@ -19,20 +19,22 @@ docstring explains the cause, not only the fix.
 ## Benchmark: centred PCA on a sparse matrix
 
 A common workaround for memory is `sc.tl.pca(..., zero_center=False)`. Measured on a
-synthetic log-normalised matrix of 200,000 cells x 2,000 genes (8% non-zero), each variant
-in its own process:
+synthetic log-normalised matrix of 200,000 cells x 2,000 genes (8% non-zero). The matrix is
+generated once and saved; each variant runs in its own process that loads it and records the
+rise in peak memory during PCA:
 
 | Variant | Extra memory for PCA | Time | Agreement with exact PCA |
 |---|---|---|---|
-| Centred, sparse, `svd_solver="arpack"` | 0 MB | 41 s | 1.000 |
-| Uncentred (`zero_center=False`) | 0 MB | 15 s | 0.899 |
-| Centred, densified first | +1,981 MB | 17 s | 1.000 |
+| Centred, sparse, `svd_solver="arpack"` | +187 MB | 17 s | 1.000 |
+| Uncentred (`zero_center=False`) | +443 MB | 19 s | 0.899 |
+| Centred, densified first | +5,249 MB | 17 s | 1.000 |
 
 Agreement is the overlap between the subspaces of the first 10 components (1 = identical).
 With sparse input and the arpack solver, Scanpy centres implicitly and never builds the
-dense matrix, so the centred PCA costs no extra memory and gives the exact result. Skipping
-centring only saves time, and it changes the components. `integrate_sparse.py` therefore
-keeps the PCA centred. Raw numbers: `benchmarks/results/pca_centering.csv`.
+dense matrix, so the centred PCA adds under 200 MB and gives the exact result. Skipping
+centring saved neither memory nor time here, and it changes the components.
+`integrate_sparse.py` therefore keeps the PCA centred. The densified row includes the
+1.6 GB dense copy of the matrix. Raw numbers: `benchmarks/results/pca_centering.csv`.
 
 ```bash
 python benchmarks/pca_centering.py --cells 200000 --genes 2000 --density 0.08

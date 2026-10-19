@@ -1,7 +1,9 @@
 """Benchmark: does PCA on a sparse HVG matrix need zero_center=False to fit in RAM?
 
-Runs each PCA variant in a fresh subprocess and records peak memory (peak working
-set on Windows, max RSS elsewhere) and wall time. Also checks how far each result
+The matrix is built once and saved to disk. Each PCA variant then runs in a fresh
+subprocess that only loads it, so the process peak (peak working set on Windows,
+max RSS elsewhere) before PCA is the loaded matrix and not the temporary arrays used
+to generate it, which would otherwise hide any PCA allocation below that level. Also checks how far each result
 is from an exact, centred PCA computed on a small subsample.
 
 Usage:
@@ -55,12 +57,15 @@ def peak_memory_mb() -> float:
     return peak / 1e6
 
 
-def run_variant(name: str, n_cells: int, n_genes: int, density: float, n_pcs: int) -> dict:
+def run_variant(name: str, matrix_path: Path, n_pcs: int) -> dict:
     import anndata as ad
     import numpy as np
     import scanpy as sc
+    import scipy.sparse as sp
 
-    X = make_matrix(n_cells, n_genes, density)
+    X = sp.load_npz(matrix_path)
+    n_cells, n_genes = X.shape
+    density = round(X.nnz / (n_cells * n_genes), 4)
     base_mb = peak_memory_mb()
     params = dict(VARIANTS[name])
     densify = params.pop("densify", False)
@@ -94,20 +99,26 @@ def main() -> None:
     p.add_argument("--density", type=float, default=0.08)
     p.add_argument("--pcs", type=int, default=50)
     p.add_argument("--variant", help=argparse.SUPPRESS)
+    p.add_argument("--matrix", type=Path, help=argparse.SUPPRESS)
     p.add_argument("--skip-dense", action="store_true", help="skip the dense reference if RAM is short")
     args = p.parse_args()
 
     (HERE / "results").mkdir(exist_ok=True)
     if args.variant:
-        print(json.dumps(run_variant(args.variant, args.cells, args.genes, args.density, args.pcs)))
+        print(json.dumps(run_variant(args.variant, args.matrix, args.pcs)))
         return
+
+    import scipy.sparse as sp
+
+    matrix_path = HERE / "results" / "_matrix.npz"
+    sp.save_npz(matrix_path, make_matrix(args.cells, args.genes, args.density), compressed=False)
 
     rows = []
     for name in VARIANTS:
         if name == "centred_dense" and args.skip_dense:
             continue
-        out = subprocess.run([sys.executable, __file__, "--variant", name, "--cells", str(args.cells),
-                              "--genes", str(args.genes), "--density", str(args.density), "--pcs", str(args.pcs)],
+        out = subprocess.run([sys.executable, __file__, "--variant", name, "--matrix", str(matrix_path),
+                              "--pcs", str(args.pcs)],
                              capture_output=True, text=True)
         if out.returncode != 0:
             print(f"{name} failed:\n{out.stderr[-1500:]}", file=sys.stderr)
@@ -121,7 +132,7 @@ def main() -> None:
         ref = np.load(ref_path)
         for r in rows:
             r["agreement_with_dense_pca"] = round(subspace_agreement(np.load(HERE / "results" / f"_pcs_{r['variant']}.npy"), ref), 4)
-    for f in (HERE / "results").glob("_pcs_*.npy"):
+    for f in [*(HERE / "results").glob("_pcs_*.npy"), matrix_path]:
         f.unlink()
 
     env = {"python": platform.python_version(), "scanpy": version("scanpy"), "anndata": version("anndata"),
